@@ -20,12 +20,17 @@ void MessageHandler(SKSE::MessagingInterface::Message* a_message)
 
 extern "C" DLLEXPORT constinit auto SKSEPlugin_Version = []() {
 	SKSE::PluginVersionData v;
-	v.PluginVersion(Version::MAJOR);
+	v.PluginVersion({ Version::MAJOR, Version::MINOR, Version::PATCH });
 	v.PluginName(Version::PROJECT);
 	v.AuthorName("Nightfallstorm");
-	v.UsesAddressLibrary(true);
-	v.CompatibleVersions({ SKSE::RUNTIME_SSE_LATEST_AE });
-	v.UsesNoStructs(true);
+	v.UsesAddressLibrary();
+	v.UsesNoStructs();
+	v.CompatibleVersions({
+		SKSE::RUNTIME_SSE_1_6_1170,
+		SKSE::RUNTIME_SSE_1_7_99,
+		REL::Version{ 1, 7, 104, 0 },
+		REL::Version{ 1, 7, 704, 0 }
+	});
 
 	return v;
 }();
@@ -73,7 +78,7 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_s
 	InitializeLog();
 	logger::info("loaded plugin");
 
-	SKSE::Init(a_skse);
+	SKSE::Init(a_skse, false);
 
 	auto messaging = SKSE::GetMessagingInterface();
 	messaging->RegisterListener(MessageHandler);

@@ -2,48 +2,6 @@
 #include "Settings.h"
 #include <xbyak/xbyak.h>
 
-// TEMPORARY UNTIL CLIB-NG UPDATES
-namespace RE::BSScript::UnlinkedTypes
-{
-	class ConvertTypeFunctor
-	{
-	public:
-		inline static constexpr auto RTTI = RTTI_BSScript__UnlinkedTypes__Function__ConvertTypeFunctor;
-		inline static constexpr auto VTABLE = VTABLE_BSScript__UnlinkedTypes__Function__ConvertTypeFunctor;
-
-		virtual ~ConvertTypeFunctor();  // 00
-
-		virtual bool ConvertVariableType(BSFixedString* a_typeAsString, TypeInfo& a_typeOut) = 0;  // 01
-	};
-	static_assert(sizeof(ConvertTypeFunctor) == 0x8);
-
-	class LinkerConvertTypeFunctor : public ConvertTypeFunctor
-	{
-	public:
-		inline static constexpr auto RTTI = RTTI_BSScript____LinkerConvertTypeFunctor;
-		inline static constexpr auto VTABLE = VTABLE_BSScript____LinkerConvertTypeFunctor;
-		~LinkerConvertTypeFunctor() override;  // 00
-
-		bool ConvertVariableType(BSFixedString* a_typeAsString, TypeInfo& a_typeOut) override;  // 01
-		// members
-		LinkerProcessor* linker;  // 08
-	};
-	static_assert(sizeof(LinkerConvertTypeFunctor) == 0x10);
-
-	class VMTypeResolveFunctor : public ConvertTypeFunctor
-	{
-	public:
-		inline static constexpr auto RTTI = RTTI_BSScript____VMTypeResolveFunctor;
-		inline static constexpr auto VTABLE = VTABLE_BSScript____VMTypeResolveFunctor;
-		~VMTypeResolveFunctor() override;  // 00
-
-		bool ConvertVariableType(BSFixedString* a_typeAsString, TypeInfo& a_typeOut) override;  // 01
-		// members
-		RE::BSScript::Internal::VirtualMachine* vm;  // 08
-	};
-	static_assert(sizeof(VMTypeResolveFunctor) == 0x10);
-}
-
 namespace ModifyHooks
 {
 	using VM = RE::BSScript::Internal::VirtualMachine;
@@ -161,9 +119,10 @@ namespace ModifyHooks
 		static void thunk(RE::SkyrimVM* a_this, bool a_frozen)
 		{
 			if (RE::Script::GetProcessScripts()) {  // Only unfreeze script processing if script processing is enabled
-				a_this->frozenLock.Lock();
-				a_this->isFrozen = a_frozen;
-				a_this->frozenLock.Unlock();
+				auto& runtimeData = a_this->GetVMRuntimeData();
+				runtimeData.frozenLock.Lock();
+				runtimeData.isFrozen = a_frozen;
+				runtimeData.frozenLock.Unlock();
 			}
 		}
 
@@ -198,13 +157,14 @@ namespace ModifyHooks
 		static void thunk(RE::SkyrimVM* a_this, bool a_frozen)
 		{
 			if (RE::Script::GetProcessScripts()) {  // Only unfreeze script processing if script processing is enabled
-				a_this->frozenLock.Lock();
-				a_this->isFrozen = a_frozen;
-				a_this->frozenLock.Unlock();
+				auto& runtimeData = a_this->GetVMRuntimeData();
+				runtimeData.frozenLock.Lock();
+				runtimeData.isFrozen = a_frozen;
+				runtimeData.frozenLock.Unlock();
 			}
 		}
 
-		static inline REL::Relocation<decltype(thunk)> func;
+		static inline REL::Relocation<decltype(&thunk)> func;
 
 		// Install our hook at the specified address
 		static inline void Install()
@@ -275,9 +235,9 @@ namespace ModifyHooks
 			}
 		}
 
-		static inline REL::Relocation<decltype(IsHostileToActorEx)> IsHostileToActor;  // Original IsHostileToActor
+		static inline REL::Relocation<decltype(&IsHostileToActorEx)> IsHostileToActor;  // Original IsHostileToActor
 
-		static inline REL::Relocation<decltype(thunk)> func;
+		static inline REL::Relocation<decltype(&thunk)> func;
 
 		// Install our hook at the specified address
 		static inline void Install()
@@ -305,7 +265,7 @@ namespace ModifyHooks
 			return true;
 		}
 
-		static inline REL::Relocation<decltype(thunk)> func;
+		static inline REL::Relocation<decltype(&thunk)> func;
 
 		// Install our hook at the specified address
 		static inline void Install()
@@ -336,7 +296,7 @@ namespace ModifyHooks
 
 		static inline std::uint32_t idx = 1;
 
-		static inline REL::Relocation<decltype(thunk)> func;
+		static inline REL::Relocation<decltype(&thunk)> func;
 
 		// Install our hook at the specified address
 		static inline void Install()
@@ -349,6 +309,21 @@ namespace ModifyHooks
 
 	struct EnableLoadDocStrings
 	{
+		static std::uintptr_t GetLoaderConstructorCallAddress()
+		{
+			REL::Relocation<std::uintptr_t> target{ RELOCATION_ID(53108, 53919) };
+
+			// 1.7.99 introduced additional initialization instructions before this
+			// call.  The former AE offset (0x664) lands inside an instruction on
+			// 1.7.99+, corrupting its RIP-relative displacement when patched.
+			if (REL::Module::IsAE() &&
+				REL::Module::get().version().compare(SKSE::RUNTIME_SSE_1_7_99) != std::strong_ordering::less) {
+				return target.address() + 0x672;
+			}
+
+			return target.address() + (REL::Module::IsAE() ? 0x664 : 0x604);
+		}
+
 		// Hook the SkyrimVM's constructor that constructs CompiledScriptLoader, to enable doc string loading
 		// This plays well with the load debug information hook
 		static RE::BSScript::CompiledScriptLoader* thunk(RE::BSScript::CompiledScriptLoader* a_unmadeSelf, RE::SkyrimScript::Logger* a_logger, bool a_loadDebugInformation, bool a_loadDocStrings)
@@ -356,15 +331,14 @@ namespace ModifyHooks
 			return func(a_unmadeSelf, a_logger, a_loadDebugInformation, true);
 		}
 
-		static inline REL::Relocation<decltype(thunk)> func;
+		static inline REL::Relocation<decltype(&thunk)> func;
 
 		// Install our hook at the specified address
 		static inline void Install()
 		{
-			REL::Relocation<std::uintptr_t> target{ RELOCATION_ID(53108, 53919), REL::VariantOffset(0x604, 0x664, 0x604) };
-			stl::write_thunk_call<EnableLoadDocStrings>(target.address());
-			logger::info("EnableLoadDocStrings hooked at address {:x}", target.address());
-			logger::info("EnableLoadDocStrings hooked at offset {:x}", target.offset());
+			const auto target = GetLoaderConstructorCallAddress();
+			stl::write_thunk_call<EnableLoadDocStrings>(target);
+			logger::info("EnableLoadDocStrings hooked at address {:x}", target);
 		}
 	};
 
@@ -377,15 +351,14 @@ namespace ModifyHooks
 			return func(a_unmadeSelf, a_logger, true, a_loadDocStrings);
 		}
 
-		static inline REL::Relocation<decltype(thunk)> func;
+		static inline REL::Relocation<decltype(&thunk)> func;
 
 		// Install our hook at the specified address
 		static inline void Install()
 		{
-			REL::Relocation<std::uintptr_t> target{ RELOCATION_ID(53108, 53919), REL::VariantOffset(0x604, 0x664, 0x604) };
-			stl::write_thunk_call<EnableLoadDebugInformation>(target.address());
-			logger::info("EnableLoadDebugInformation hooked at address {:x}", target.address());
-			logger::info("EnableLoadDebugInformation hooked at offset {:x}", target.offset());
+			const auto target = EnableLoadDocStrings::GetLoaderConstructorCallAddress();
+			stl::write_thunk_call<EnableLoadDebugInformation>(target);
+			logger::info("EnableLoadDebugInformation hooked at address {:x}", target);
 		}
 	};
 

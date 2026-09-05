@@ -7,8 +7,8 @@
 #include "SKSE/SKSE.h"
 
 #include <SimpleIni.h>
-#include <robin_hood.h>
 #include <spdlog/sinks/basic_file_sink.h>
+#include <unordered_map>
 #include <xbyak/xbyak.h>
 #include "Util.h"
 

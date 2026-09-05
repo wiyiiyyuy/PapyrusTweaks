@@ -1,2 +1,10 @@
-build*/
-/.vs
+/build/
+/.vs/
+/CMakeUserPresets.json
+*.VC.db
+*.user
+*.dll
+*.exe
+*.exp
+*.lib
+*.pdb
